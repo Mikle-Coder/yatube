@@ -31,6 +31,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'users',
     'posts',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -64,6 +65,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'yatube.context_processors.year'
             ],
         },
     },
@@ -105,7 +107,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/2.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'ru'
 
 TIME_ZONE = 'UTC'
 
@@ -125,3 +127,11 @@ STATIC_URL = "/static/"
 
 # задаём адрес директории, куда командой *collectstatic* будет собрана вся статика
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
+
+LOGIN_URL = "/auth/login/"
+LOGIN_REDIRECT_URL = "index" 
+LOGOUT_REDIRECT_URL = "index"
+
+EMAIL_BACKEND = "django.core.mail.backends.filebased.EmailBackend"
+# # указываем директорию, в которую будут складываться файлы писем
+EMAIL_FILE_PATH = os.path.join(BASE_DIR, "sent_emails")

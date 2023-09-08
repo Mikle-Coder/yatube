@@ -7,6 +7,9 @@
 # Остановить работу виртуального окружения можно командой
 	deactivate
 
+# Создание приложение
+	python manage.py startapp Название_приложения
+
 # Мигрировать БД
 	python manage.py makemigrations
 	python manage.py migrate
