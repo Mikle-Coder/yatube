@@ -1,0 +1,25 @@
+{% extends "base.html" %} 
+{% block title %} Записи {{ author.username }}{% endblock %}
+{% block content %}
+{% load thumbnail %}
+    <main role="main" class="container">
+    <div class="row">
+        {% include "author.html" with author=author %}
+        <div class="col-md-9">
+            <h1>
+                {% if user == author %}
+                Мои записи
+                {% else %}
+                Все записи
+                {% endif %}
+            </h1>       
+            {% for post in page %}
+                {% include "post_item.html" with post=post %}
+            {% endfor %}
+            {% if page.has_other_pages %}
+                {% include "paginator.html" with items=page paginator=paginator%}
+            {% endif %}
+        </div>
+    </div>
+</main>
+{% endblock %}
