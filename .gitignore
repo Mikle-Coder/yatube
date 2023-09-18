@@ -17,4 +17,5 @@ __pycache__/
 *.sublime-workspace
 
 sent_emails/
-media/
+media/*
+!tests/media
