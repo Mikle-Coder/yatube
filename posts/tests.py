@@ -4,8 +4,12 @@ from django.test import Client, TestCase
 from django.core.cache import cache
 from django.urls import reverse
 from .models import Post, Group, Comment, Follow
+from .forms import PostForm
 from django.conf import settings
 import os.path as path
+import tempfile
+from django.test import override_settings
+from sorl.thumbnail import get_thumbnail
 
 BASE_DIR = settings.BASE_DIR
 
@@ -66,10 +70,8 @@ class TestPost(TestBase):
         self.assertEqual(response.context["author"], self.user)
 
     def test_auth_client_create_post(self):
-        response = self.auth_client.post(
-            reverse("new_post"), 
-            data={"text": self.text_second, 'group': self.group.id}
-        )
+        payload = {"text": self.text_second, 'group': self.group.id}
+        response = self.auth_client.post(reverse("new_post"), data=payload)
         self.assertEqual(response.status_code, 302)
 
         first_post = Post.objects.first()
@@ -84,12 +86,11 @@ class TestPost(TestBase):
                 self.assertEqual(response.context['post'], first_post)
 
     def test_auth_client_edit_post(self):
-        response = self.auth_client.post(
-            reverse("post_edit", kwargs={"post_id": self.post.id, "username": self.username}),
-            data={"text": self.text_edit, 'group': self.group.id},
-        )
-        self.assertEqual(response.status_code, 302)
+        params = {"post_id": self.post.id, "username": self.username}
+        payload = {"text": self.text_edit, 'group': self.group.id}
+        response = self.auth_client.post(reverse("post_edit", kwargs=params), data=payload)
 
+        self.assertEqual(response.status_code, 302)
         urls = get_test_urls(self.username, self.post.id, self.group_slug)
         for url in urls.values():
             response = self.auth_client.get(url)
@@ -117,48 +118,40 @@ class TestErrorPages(TestCase):
 
 class TestPostWithImage(TestBase):
     def test_post_has_image(self):
-        with open(path.join(BASE_DIR, rf'tests\media\test.jpg'), 'rb') as img:
-            response = self.auth_client.post(
-                reverse("post_edit", kwargs={"post_id": self.post.id, "username": self.username}), 
-                data={
-                    "text": self.text_second,
-                    'group': self.group.id,
-                    'image': img
-                }
-        )
-        self.assertEqual(response.status_code, 302)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with override_settings(MEDIA_ROOT=temp_dir):
+                with open(path.join(BASE_DIR, rf'tests\media\test.jpg'), 'rb') as img:
+                    params = {"post_id": self.post.id, "username": self.username}
+                    payload = { "text": 'text with image', 'group': self.post.group.id, 'image': img}
+                    response = self.auth_client.post(reverse("post_edit", kwargs=params), data=payload)
+                    
+                    self.assertEqual(response.status_code, 302)
+                    self.post.refresh_from_db()
 
-        urls = get_test_urls(self.username, self.post.id, self.group_slug)
-        for url in urls.values():
-            response = self.auth_client.get(url)
-            self.assertIn('<img', response.content.decode())
+                    urls = get_test_urls(self.username, self.post.id, self.group_slug)
+                    for url in urls.values():
+                        response = self.auth_client.get(url)
+                        self.assertIn('<img', response.content.decode())
+                        im = get_thumbnail(self.post.image, "960x339", crop="center", upscale=True)
+                        self.assertContains(response, im.url)
+                        self.assertContains(response, 'unique_id')
 
     def test_wrong_format_detection(self):
         with open(path.join(BASE_DIR, rf'tests\media\not_image.txt'), 'rb') as img:
-            response = self.auth_client.post(
-                reverse("new_post"), 
-                data={
-                    "text": self.text_second,
-                    'group': self.group.id,
-                    'image': img
-                },
-                follow=True
-        )
-
-        self.assertEqual(len(response.context['form'].errors), 1)
+            payload = {"text": self.text_second, 'group': self.group.id, 'image': img}
+            response = self.auth_client.post(reverse("new_post"), data=payload)
+            self.assertIn('image', response.context['form'].errors)
 
 
 class TestPostCached(TestBase):
-    def test_index_cached(self):
+    def test_index_cached_new_post(self):
         response = self.auth_client.get(reverse('index'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.text_first)
 
-        response = self.auth_client.post(
-            reverse("new_post"), 
-            data={"text": self.text_second, 'group': self.group.id},
-            follow=True
-        )
+        params = {"text": self.text_second, 'group': self.group.id}
+        response = self.auth_client.post(reverse("new_post"), data=params, follow=True)
+
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, self.text_second)
 
@@ -167,6 +160,12 @@ class TestPostCached(TestBase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.text_second)
 
+    def test_index_cached(self):
+        with self.assertNumQueries(3):
+            response = self.nonauth_client.get(reverse('index'))
+            self.assertEqual(response.status_code, 200)
+            response = self.nonauth_client.get(reverse('index'))
+            self.assertEqual(response.status_code, 200)
 
 class TestFollowing(TestBase):
     def setUp(self):
@@ -180,17 +179,20 @@ class TestFollowing(TestBase):
         super().setUp()
 
     def test_auth_client_following(self):
+        params = {'username': self.author.username}
+
         self.assertFalse(Follow.objects.filter(user=self.user, author=self.author).exists())
 
-        response = self.auth_client.get(reverse("profile_follow", kwargs={'username': self.author.username}))
+        response = self.auth_client.get(reverse("profile_follow", kwargs=params))
         self.assertEqual(response.status_code, 302)
         self.assertIsNotNone(Follow.objects.get(user=self.user, author=self.author))
 
-        response = self.auth_client.get(reverse("profile_unfollow", kwargs={'username': self.author.username}))
+        response = self.auth_client.get(reverse("profile_unfollow", kwargs=params))
         self.assertEqual(response.status_code, 302)
         self.assertFalse(Follow.objects.filter(user=self.user, author=self.author).exists())
 
     def test_follow_index(self):
+        params = {'username': self.author.username}
         text = 'Hello, my followers!'
         Post.objects.create(author=self.author, text=text)
 
@@ -198,7 +200,7 @@ class TestFollowing(TestBase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, text)
 
-        response = self.auth_client.get(reverse("profile_follow", kwargs={'username': self.author.username}))
+        response = self.auth_client.get(reverse("profile_follow", kwargs=params))
         self.assertEqual(response.status_code, 302)
 
         response = self.auth_client.get(reverse('follow_index'))
@@ -209,19 +211,9 @@ class TestFollowing(TestBase):
 class TestComment(TestBase):
     def test_auth_client_can_comment(self):
         comment_text = 'I can comment'
-
-        response = self.auth_client.post(
-            reverse(
-                'add_comment', 
-                kwargs={
-                    'username': self.user.username,
-                    'post_id': self.post.id
-                }
-            ),
-            data={
-                'text': comment_text
-            },
-        )
+        params = {'username': self.user.username, 'post_id': self.post.id}
+        payload = {'text': comment_text}
+        response = self.auth_client.post(reverse('add_comment', kwargs=params), data=payload)
 
         self.assertEqual(response.status_code, 302)
         comment = Comment.objects.get(post=self.post, author=self.user, text=comment_text)
@@ -229,19 +221,9 @@ class TestComment(TestBase):
 
     def test_nonauth_client_cant_comment(self):
         comment_text = 'I can comment'
-
-        response = self.nonauth_client.post(
-            reverse(
-                'add_comment', 
-                kwargs={
-                    'username': self.user.username,
-                    'post_id': self.post.id
-                }
-            ),
-            data={
-                'text': comment_text
-            },
-        )
+        params = {'username': self.user.username, 'post_id': self.post.id}
+        payload = {'text': comment_text}
+        response = self.nonauth_client.post(reverse('add_comment', kwargs=params), data=payload)
 
         redir_url = urljoin(reverse("login"), f"?next=/{self.user.username}/{self.post.id}/comment")
         self.assertRedirects(response, redir_url)

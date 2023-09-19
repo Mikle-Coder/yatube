@@ -134,9 +134,7 @@ def add_comment(request, username, post_id):
 
 @login_required
 def follow_index(request):
-    authors = request.user.follower.all()
-
-    post_list = Post.objects.select_related('author', 'group').filter(author__following__in=authors).all()
+    post_list = Post.objects.select_related('author', 'group').filter(author__following__user=request.user).all()
     paginator = Paginator(post_list, 10)
     page_number = request.GET.get('page', 1)
     page = paginator.get_page(page_number)
