@@ -6,7 +6,7 @@ dirs, files = next(walk(dir_path), (None, [], []))[-2:]
 
 assert 'manage.py' in files, 'Файл manage.py не обнаружен'
 
-manage_com = f'python "{path.join(dir_path, 'manage.py')}"'
+manage_com = f'python "{path.join(dir_path, "manage.py")}" '
 system('pytest')
 commands = ['test', 'makemigrations', 'migrate', 'runserver']
 list(map(lambda x: system(manage_com + x), commands))
